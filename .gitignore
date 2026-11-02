@@ -1,0 +1,23 @@
+# Build output
+/build/
+/out/
+compile_commands.json
+CMakeUserPresets.json
+.cache/
+
+# Recorded order flow and benchmark output
+/data/
+/bench/results/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
