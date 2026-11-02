@@ -1,0 +1,7 @@
+#pragma once
+
+namespace matchbook {
+
+inline constexpr const char* kVersion = "@PROJECT_VERSION@";
+
+}  // namespace matchbook
