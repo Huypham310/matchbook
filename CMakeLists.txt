@@ -36,6 +36,7 @@ configure_file(include/matchbook/version.hpp.in
                ${CMAKE_CURRENT_BINARY_DIR}/generated/matchbook/version.hpp @ONLY)
 
 add_library(matchbook
+  src/book.cpp
   src/price.cpp
 )
 target_include_directories(matchbook
