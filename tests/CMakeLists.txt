@@ -13,6 +13,8 @@ FetchContent_MakeAvailable(googletest)
 add_executable(matchbook_tests
   test_book.cpp
   test_book_differential.cpp
+  test_engine.cpp
+  test_engine_differential.cpp
   test_price.cpp
   test_types.cpp
 )
