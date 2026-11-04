@@ -52,6 +52,9 @@ public:
     void check_invariants() const;
 
 private:
+    // the matching engine works directly on levels and orders to avoid lookups on the hot path
+    friend class MatchingEngine;
+
     using Ladder = std::vector<Level*>;
 
     [[nodiscard]] Ladder& ladder(Side s) noexcept { return s == Side::Buy ? bids_ : asks_; }
