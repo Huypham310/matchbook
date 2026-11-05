@@ -39,6 +39,8 @@ add_library(matchbook
   src/book.cpp
   src/engine.cpp
   src/price.cpp
+  src/protocol.cpp
+  src/session.cpp
 )
 target_include_directories(matchbook
   PUBLIC
