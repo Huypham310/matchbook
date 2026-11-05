@@ -69,6 +69,41 @@ map, re-sorted for every order) on 120,000 random limit / market / IOC / FOK / c
 operations: identical event streams, identical book depth, and no crossed book at any step.
 Turning the FOK check from `<` into `<=` is caught within 9 steps.
 
+## Wire protocol
+
+Orders and events travel as fixed-size, little-endian binary messages (OUCH / ITCH style)
+behind an 8-byte header (`u16 length, u8 type, u8 version, u32 seq`):
+
+| Type | Dir | Size | Body |
+|---|---|---|---|
+| `N` new order | in | 40 | id, price, qty, side, order type, time in force |
+| `X` cancel | in | 16 | id |
+| `M` modify | in | 32 | id, price, qty |
+| `T` trade | out | 40 | maker id, taker id, price, qty |
+| `R` rested / `C` cancelled | out | 32 | id, price, qty |
+| `J` rejected | out | 24 | id, reason |
+
+- **Zero-copy decode:** `proto::decode` validates the header (type, version, exact length,
+  enum bytes) and returns a `MessageView` that reads each field straight out of the receive
+  buffer with an unaligned load. It never throws, never allocates and never reads past the
+  buffer; 20,000 random buffers in the tests check that.
+- **`proto::Session`** turns a byte stream into engine calls and encodes the resulting events.
+  Messages split across reads are stitched together; feeding the same stream in random 1-120
+  byte chunks gives byte-identical output to feeding it whole. The first malformed message
+  stops the session, since fixed-size framing has no way to resync.
+- The `NewOrder` layout is pinned by a golden-bytes test, and an end-to-end test checks that
+  3,000 orders sent over the wire produce exactly the events of calling the engine directly.
+
+```text
+$ matchbook bench-protocol 2000000      # GCC 16 -O3, Ryzen AI 9 HX 370 laptop, Windows
+2000000 messages (75.2 MB), 1346720 trades, 95708368 bytes out
+decode only:               3.1 ns/msg  (318.5 M msg/s)
+decode + match + encode:  82.2 ns/msg  (12.2 M msg/s)
+```
+
+A quick single-run number; proper Google Benchmark runs with latency percentiles come in the
+`bench` phase.
+
 ## Build
 
 Requirements: CMake 3.24+, Ninja, and GCC 12+ or Clang 16+.
