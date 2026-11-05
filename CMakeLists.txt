@@ -37,6 +37,7 @@ configure_file(include/matchbook/version.hpp.in
 
 add_library(matchbook
   src/book.cpp
+  src/engine.cpp
   src/price.cpp
 )
 target_include_directories(matchbook

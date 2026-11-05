@@ -50,6 +50,25 @@ Correctness is checked with a differential test: the book and a deliberately nai
 over a narrow price band, and every depth snapshot and every level's queue order must match. A
 mutation check (letting same-price size changes keep priority) is caught within 2,500 steps.
 
+## Matching
+
+`matchbook::MatchingEngine` puts price-time priority on top of the book:
+
+- An incoming order walks the opposite side from the best price, filling the oldest order at each
+  level first; every trade prints at the **resting (maker) price**.
+- **GTC** limit orders rest whatever is left at their limit; **IOC** and market orders drop it;
+  **FOK** checks the available quantity first and either fills completely or leaves no trace.
+- **Modify** that reprices an order through the spread turns it into an aggressive order and
+  matches it; a passive modify keeps the book rules (priority kept only when shrinking).
+- Events (trade, rested, cancelled, rejected) go into a reserved buffer per call, so an ordinary
+  order doesn't allocate.
+
+The book can never be crossed: a limit order only rests after everything it could trade with is
+gone. A differential test checks the engine against a deliberately slow reference matcher (a flat
+map, re-sorted for every order) on 120,000 random limit / market / IOC / FOK / cancel / modify
+operations: identical event streams, identical book depth, and no crossed book at any step.
+Turning the FOK check from `<` into `<=` is caught within 9 steps.
+
 ## Build
 
 Requirements: CMake 3.24+, Ninja, and GCC 12+ or Clang 16+.

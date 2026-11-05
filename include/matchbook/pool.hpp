@@ -19,6 +19,9 @@ public:
 
     Pool(const Pool&) = delete;
     Pool& operator=(const Pool&) = delete;
+    // moving a std::vector keeps its heap buffer, so pointers handed out stay valid
+    Pool(Pool&&) noexcept = default;
+    Pool& operator=(Pool&&) noexcept = default;
 
     /// nullptr when the pool is exhausted; the caller decides how to reject the request.
     [[nodiscard]] T* acquire() noexcept {
