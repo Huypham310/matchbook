@@ -16,6 +16,7 @@ add_executable(matchbook_tests
   test_engine.cpp
   test_engine_differential.cpp
   test_price.cpp
+  test_protocol.cpp
   test_types.cpp
 )
 target_link_libraries(matchbook_tests PRIVATE matchbook matchbook_warnings GTest::gtest_main)
