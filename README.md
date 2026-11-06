@@ -104,6 +104,59 @@ decode + match + encode:  82.2 ns/msg  (12.2 M msg/s)
 A quick single-run number; proper Google Benchmark runs with latency percentiles come in the
 `bench` phase.
 
+## Threaded pipeline
+
+`matchbook::SpscRing<T, N>` is a bounded, lock-free single-producer / single-consumer queue
+(power-of-two capacity, ever-growing counters so "full" needs no wasted slot, acquire/release
+only). The producer's and consumer's counters sit on separate padded cache lines, and each side
+keeps a private copy of the other's counter, re-reading the shared atomic only when the queue
+*looks* full or empty.
+
+`matchbook::Pipeline` wires three threads together with two rings:
+
+```
+gateway (decode wire bytes) --commands--> engine (match) --events--> publisher (encode)
+```
+
+Each stage owns its state (only the engine thread touches the book, only the publisher touches
+the output), so nothing is locked. Threads can be pinned to cores, and the gateway can pace
+its input at a fixed rate.
+
+- Two-thread stress tests push millions of items through both ring variants and check order,
+  sums and that 24-byte structs never arrive torn; the pipeline's encoded output is checked
+  byte-for-byte against the single-threaded `Session` on 50,000 random orders, cancels and
+  modifies, pinned and unpinned.
+
+```text
+$ matchbook bench-queue          # Ryzen AI 9 HX 370 laptop, Windows 11, GCC 16 -O3
+spsc ring, 2 threads:  plain 227.7 M ops/s, padded + cached indices 281.0 M ops/s (1.2x)
+single thread (Session): 11.7 M msg/s
+3-thread pipeline:       7.2 M msg/s, 2697459 events
+unpinned paced 1M msg/s: p50 247 ns, p99 11073 ns, p99.9 9162744 ns
+pinned   paced 1M msg/s: p50 300 ns, p99 2049815 ns, p99.9 11163685 ns
+pinned   paced 3M msg/s: p50 280 ns, p99 7925999 ns, p99.9 12610530 ns
+pinned   paced 5M msg/s: p50 370 ns, p99 12264333 ns, p99.9 13624285 ns
+```
+
+What the numbers say:
+
+- **A message crosses two thread hops in ~250-370 ns (median)**, decode to published event,
+  timed with the TSC (Windows' `steady_clock` has 100 ns resolution).
+- **The pipeline is slower than one thread** (7.2 vs 11.7 M msg/s). Each stage does only
+  30-80 ns of work, and every message costs two cache-line transfers between cores; at that
+  granularity the handoff costs more than it saves. The point of the split is isolation
+  (decoding and fan-out can't stall matching), not throughput; batching handoffs would be the
+  next step if it had to be faster.
+- **Padding + cached indices: 1.2x** on the raw ring. Real, but smaller than the folklore,
+  because with a deep ring the two threads are rarely on the same slot's line anyway.
+- **Unpaced latency is meaningless**: the gateway outruns the engine, the rings fill, and
+  "latency" becomes queue depth (8 ms). Latency has to be measured at an offered load the
+  system can sustain, hence the paced runs.
+- **The tails are the OS, not the code.** A single scheduler preemption of a spinning thread
+  (Windows' quantum is ~15 ms) shows up as millisecond p99 / p99.9 values; pinning keeps the
+  median flat up to 5M msg/s but can't stop preemption. Microsecond tails need isolated cores
+  (Linux `isolcpus` + real-time priority), which a laptop doesn't give you.
+
 ## Build
 
 Requirements: CMake 3.24+, Ninja, and GCC 12+ or Clang 16+.
