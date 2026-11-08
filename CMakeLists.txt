@@ -38,6 +38,7 @@ configure_file(include/matchbook/version.hpp.in
 add_library(matchbook
   src/book.cpp
   src/engine.cpp
+  src/pipeline.cpp
   src/price.cpp
   src/protocol.cpp
   src/session.cpp
@@ -47,7 +48,8 @@ target_include_directories(matchbook
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
-target_link_libraries(matchbook PRIVATE matchbook_warnings)
+find_package(Threads REQUIRED)
+target_link_libraries(matchbook PUBLIC Threads::Threads PRIVATE matchbook_warnings)
 if(MATCHBOOK_NATIVE AND NOT MSVC)
   target_compile_options(matchbook PRIVATE -march=native)
 endif()

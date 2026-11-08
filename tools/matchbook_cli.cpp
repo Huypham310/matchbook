@@ -5,11 +5,16 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
+#include <memory>
 #include <random>
+#include <thread>
 #include <vector>
 
+#include "matchbook/pipeline.hpp"
 #include "matchbook/protocol.hpp"
 #include "matchbook/session.hpp"
+#include "matchbook/spsc.hpp"
 #include "matchbook/types.hpp"
 #include "matchbook/version.hpp"
 
@@ -94,9 +99,79 @@ int bench_protocol(std::size_t n) {
     return 0;
 }
 
+template <bool Padded>
+double ring_mops(std::uint64_t n) {
+    auto q = std::make_unique<matchbook::SpscRing<std::uint64_t, 4096, Padded>>();
+    const auto t0 = std::chrono::steady_clock::now();
+    std::thread producer([&] {
+        for (std::uint64_t i = 0; i < n;) {
+            if (q->try_push(i)) ++i;
+        }
+    });
+    std::uint64_t got = 0, v = 0, sum = 0;
+    while (got < n) {
+        if (q->try_pop(v)) {
+            sum += v;
+            ++got;
+        }
+    }
+    producer.join();
+    const double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    if (sum != n * (n - 1) / 2) std::fprintf(stderr, "lost items!\n");
+    return static_cast<double>(n) / s / 1e6;
+}
+
+int bench_queue(std::size_t n) {
+    using namespace matchbook;
+    // the ring alone, best of 3 (thread start-up and scheduling make single runs noisy)
+    double plain = 0, padded = 0;
+    for (int r = 0; r < 3; ++r) {
+        plain = std::max(plain, ring_mops<false>(20'000'000));
+        padded = std::max(padded, ring_mops<true>(20'000'000));
+    }
+    std::printf("spsc ring, 2 threads:  plain %.1f M ops/s, padded + cached indices %.1f M ops/s "
+                "(%.1fx)\n",
+                plain, padded, padded / plain);
+
+    const auto stream = make_stream(n, 42);
+    MatchingEngine engine(n + 16);
+    proto::Session session(engine);
+    const auto t0 = std::chrono::steady_clock::now();
+    session.feed(stream);
+    const double one = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+
+    Pipeline pipeline(n + 16);
+    const auto r = pipeline.run(stream, false);
+    const auto msgs = static_cast<double>(n);
+    std::printf("single thread (Session): %.1f M msg/s\n", msgs / one / 1e6);
+    std::printf("3-thread pipeline:       %.1f M msg/s, %llu events\n", msgs / r.seconds / 1e6,
+                static_cast<unsigned long long>(r.events));
+    std::printf("  (unpaced, the rings sit full: latency is just queue depth, p50 %.1f ms)\n",
+                percentile(r.latency_ns, 50) / 1e6);
+
+    // latency at offered loads the pipeline can sustain
+    for (bool pinned : {false, true}) {
+        for (double rate : {1e6, 3e6, 5e6}) {
+            Pipeline paced(n + 16);
+            // cores 2, 4, 6: separate physical cores (logical CPUs 2k / 2k+1 are SMT siblings)
+            if (pinned) paced.pin_threads({2, 4, 6});
+            const auto pr = paced.run(stream, false, rate);
+            std::printf("%s paced %.0fM msg/s: p50 %u ns, p99 %u ns, p99.9 %u ns\n",
+                        pinned ? "pinned  " : "unpinned", rate / 1e6,
+                        percentile(pr.latency_ns, 50), percentile(pr.latency_ns, 99),
+                        percentile(pr.latency_ns, 99.9));
+        }
+    }
+    return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
+    if (argc > 1 && std::strcmp(argv[1], "bench-queue") == 0) {
+        const std::size_t n = argc > 2 ? std::strtoull(argv[2], nullptr, 10) : 2'000'000;
+        return bench_queue(n);
+    }
     if (argc > 1 && std::strcmp(argv[1], "--info") == 0) {
         print_info();
         return 0;
@@ -105,6 +180,6 @@ int main(int argc, char** argv) {
         const std::size_t n = argc > 2 ? std::strtoull(argv[2], nullptr, 10) : 2'000'000;
         return bench_protocol(n);
     }
-    std::printf("usage: matchbook --info\n       matchbook bench-protocol [messages]\n");
+    std::printf("usage: matchbook --info\n       matchbook bench-protocol [messages]\n       matchbook bench-queue [messages]\n");
     return argc > 1 ? 1 : 0;
 }
