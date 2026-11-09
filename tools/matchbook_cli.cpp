@@ -168,6 +168,29 @@ int bench_queue(std::size_t n) {
     return 0;
 }
 
+/// Latency histogram in power-of-two buckets: [16, 32) ns, [32, 64) ns, ... Percentiles hide
+/// the shape; this shows whether the tail is a smooth decay or a separate hump (sweeps,
+/// preemptions).
+void print_histogram(const std::vector<std::uint32_t>& lat) {
+    std::vector<std::size_t> buckets(33, 0);
+    for (std::uint32_t ns : lat) {
+        int b = 0;
+        while (b < 32 && (std::uint64_t{1} << (b + 1)) <= ns) ++b;
+        ++buckets[static_cast<std::size_t>(b)];
+    }
+    const auto total = static_cast<double>(lat.size());
+    std::printf("histogram (count per bucket, # = 2%% of messages):\n");
+    for (std::size_t b = 0; b < buckets.size(); ++b) {
+        if (buckets[b] == 0) continue;
+        const double share = static_cast<double>(buckets[b]) / total;
+        std::string bar(static_cast<std::size_t>(share * 50.0 + 0.5), '#');
+        std::printf("  %10llu - %-10llu ns %10zu  %6.3f%%  %s\n",
+                    static_cast<unsigned long long>(b == 0 ? 0 : std::uint64_t{1} << b),
+                    static_cast<unsigned long long>(std::uint64_t{1} << (b + 1)), buckets[b],
+                    100.0 * share, bar.c_str());
+    }
+}
+
 /// Feeds `stream` one message at a time through a Session and times each one with the TSC.
 int replay_stream(const std::vector<std::byte>& stream, const char* label,
                   const std::vector<matchbook::replay::TapeTrade>* tape) {
@@ -195,6 +218,7 @@ int replay_stream(const std::vector<std::byte>& stream, const char* label,
                 static_cast<unsigned long long>(engine.trade_count()), engine.book().order_count());
     std::printf("per message (decode + match + encode): p50 %u ns, p99 %u ns, p99.9 %u ns, max %u ns\n",
                 percentile(lat, 50), percentile(lat, 99), percentile(lat, 99.9), percentile(lat, 100));
+    print_histogram(lat);
 
     if (tape != nullptr) {
         // how much of each real print our synthetic book could absorb, and at what price
