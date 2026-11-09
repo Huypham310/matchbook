@@ -8,11 +8,8 @@
 
 #include "matchbook/protocol.hpp"
 #include "matchbook/spsc.hpp"
+#include "matchbook/tsc.hpp"
 
-#if defined(__x86_64__) || defined(_M_X64)
-#include <immintrin.h>
-#define MATCHBOOK_HAVE_TSC 1
-#endif
 #if defined(_WIN32)
 #include <windows.h>
 #elif defined(__linux__)
@@ -23,41 +20,6 @@
 namespace matchbook {
 
 namespace {
-
-// ---- cheap timestamps ---------------------------------------------------------------------------
-// steady_clock on Windows is QueryPerformanceCounter: ~100 ns resolution, too coarse for a stage
-// that takes ~80 ns. The TSC ticks at a constant rate on every CPU from the last decade, so read it
-// directly and convert with a rate measured once against steady_clock.
-
-inline std::uint64_t ticks() noexcept {
-#ifdef MATCHBOOK_HAVE_TSC
-    return __rdtsc();
-#else
-    return static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
-#endif
-}
-
-double ns_per_tick() {
-#ifdef MATCHBOOK_HAVE_TSC
-    using clock = std::chrono::steady_clock;
-    const auto t0 = clock::now();
-    const std::uint64_t c0 = ticks();
-    while (clock::now() - t0 < std::chrono::milliseconds(20)) {
-    }
-    const double ns = std::chrono::duration<double, std::nano>(clock::now() - t0).count();
-    return ns / static_cast<double>(ticks() - c0);
-#else
-    return 1e9 * std::chrono::steady_clock::period::num / std::chrono::steady_clock::period::den;
-#endif
-}
-
-inline void cpu_relax() noexcept {
-#ifdef MATCHBOOK_HAVE_TSC
-    _mm_pause();  // tells the core we're spinning: saves power, frees the sibling hyperthread
-#else
-    std::this_thread::yield();
-#endif
-}
 
 /// Pins the calling thread to one logical CPU (no-op if `cpu < 0` or unsupported).
 void pin_to(int cpu) {

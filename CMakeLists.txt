@@ -41,6 +41,7 @@ add_library(matchbook
   src/pipeline.cpp
   src/price.cpp
   src/protocol.cpp
+  src/replay.cpp
   src/session.cpp
 )
 target_include_directories(matchbook

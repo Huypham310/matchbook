@@ -17,10 +17,13 @@ add_executable(matchbook_tests
   test_engine_differential.cpp
   test_price.cpp
   test_protocol.cpp
+  test_replay.cpp
   test_spsc.cpp
   test_types.cpp
 )
 target_link_libraries(matchbook_tests PRIVATE matchbook matchbook_warnings GTest::gtest_main)
+target_compile_definitions(matchbook_tests PRIVATE
+  MATCHBOOK_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
 
 include(GoogleTest)
 gtest_discover_tests(matchbook_tests)
