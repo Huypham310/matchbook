@@ -182,6 +182,49 @@ tape: 2744 prints, 5.6% of their volume filled against the synthetic makers, vol
 - **Median-sized quotes absorb almost none of the real volume** (5.6% on BTC, 13.3% on ETH): print sizes are heavy-tailed, the largest BTC print is ~1,800x the median and the top 1% of prints carry a quarter of the volume. A realistic liquidity model has to size quotes by volume, not by count; for the latency numbers it doesn't matter.
 - Tests: the synthetic event mix matches its rates within 1%, limit prices stay on their side of the mid, the book is never crossed after any message of either flow, the CSV loader skips malformed rows, and every taker fill in the tape replay is against a maker.
 
+## Benchmarks
+
+`bench/` is a Google Benchmark suite (`./build/release/bench/matchbook_bench`):
+
+| Benchmark | Time | What |
+|---|---:|---|
+| `BM_AddCancel` | 49 ns per pair | book only: add near the top of a 200-order book, then cancel it |
+| `BM_EnginePassiveLimitCancel` | 39 ns per pair | same through the engine, events included |
+| `BM_MarketSweep/1` | 30 ns per sweep | market order filling one resting order |
+| `BM_MarketSweep/4` | 107 ns | ... walking 4 price levels |
+| `BM_MarketSweep/16` | 628 ns | ... 16 levels |
+| `BM_MarketSweep/64` | 1.76 µs | ... 64 levels (~27 ns per level and trade event) |
+| `BM_ProtocolDecode` | 165 M msg/s | zero-copy decode, 5.1 GiB/s |
+| `BM_SessionSyntheticFlow/100000` | 7.1 M msg/s | decode + match + encode on synthetic Poisson flow |
+| `BM_SpscRing/padded` | 212 M items/s | producer + consumer thread through the ring |
+| `BM_SpscRing/plain` | 134 M items/s | same ring without padding / cached indices (1.6x slower) |
+
+The first version of the engine benchmarks reported ~210 ns for a single passive order and a
+one-level sweep. That was mostly `state.PauseTiming()` / `ResumeTiming()`, which cost about
+200 ns per call here: more than the work being measured. The passive order is now timed together
+with its cancel, and sweeps rebuild the book for 1,000 of them per pause.
+
+`matchbook replay` also prints a latency histogram (power-of-two buckets) because percentiles hide
+the shape:
+
+```text
+$ matchbook replay --synthetic 2000000
+per message (decode + match + encode): p50 50 ns, p99 480 ns, p99.9 1562 ns
+           8 - 16         ns     278757  13.938%  #######
+          16 - 32         ns     337524  16.876%  ########
+          32 - 64         ns     698268  34.913%  #################
+          64 - 128        ns     237786  11.889%  ######
+         128 - 256        ns     353238  17.662%  #########
+         256 - 512        ns      71461   3.573%  ##
+         512 - 1024       ns      13358   0.668%
+        1024 - 2048       ns       1975   0.099%
+        ...  (a handful of messages at 10 µs - 10 ms: OS preemption)
+```
+
+Two humps: cancels and passive orders at 8-64 ns, and messages that trade (and encode trade
+events) at 128-256 ns. Everything past ~4 µs is a few dozen messages out of 2 million that were
+interrupted by the OS.
+
 ## Build
 
 Requirements: CMake 3.24+, Ninja, and GCC 12+ or Clang 16+.
