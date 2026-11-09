@@ -8,13 +8,16 @@
 #include <algorithm>
 #include <memory>
 #include <random>
+#include <string>
 #include <thread>
 #include <vector>
 
 #include "matchbook/pipeline.hpp"
 #include "matchbook/protocol.hpp"
+#include "matchbook/replay.hpp"
 #include "matchbook/session.hpp"
 #include "matchbook/spsc.hpp"
+#include "matchbook/tsc.hpp"
 #include "matchbook/types.hpp"
 #include "matchbook/version.hpp"
 
@@ -165,9 +168,116 @@ int bench_queue(std::size_t n) {
     return 0;
 }
 
+/// Feeds `stream` one message at a time through a Session and times each one with the TSC.
+int replay_stream(const std::vector<std::byte>& stream, const char* label,
+                  const std::vector<matchbook::replay::TapeTrade>* tape) {
+    using namespace matchbook;
+    std::vector<std::size_t> offsets;
+    for (std::size_t at = 0; at < stream.size();) {
+        offsets.push_back(at);
+        at += proto::decode(std::span(stream).subspan(at)).consumed;
+    }
+    MatchingEngine engine(4u << 20);
+    proto::Session session(engine);
+    const double tick_ns = ns_per_tick();
+    std::vector<std::uint32_t> lat;
+    lat.reserve(offsets.size());
+    const auto start = std::chrono::steady_clock::now();
+    for (std::size_t i = 0; i < offsets.size(); ++i) {
+        const std::size_t end = i + 1 < offsets.size() ? offsets[i + 1] : stream.size();
+        const auto t0 = ticks();
+        session.feed(std::span(stream).subspan(offsets[i], end - offsets[i]));
+        lat.push_back(static_cast<std::uint32_t>(static_cast<double>(ticks() - t0) * tick_ns));
+    }
+    const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    std::printf("%s: %zu messages in %.3f s (%.1f M msg/s incl. timing), %llu trades, %zu resting at the end\n",
+                label, offsets.size(), secs, static_cast<double>(offsets.size()) / secs / 1e6,
+                static_cast<unsigned long long>(engine.trade_count()), engine.book().order_count());
+    std::printf("per message (decode + match + encode): p50 %u ns, p99 %u ns, p99.9 %u ns, max %u ns\n",
+                percentile(lat, 50), percentile(lat, 99), percentile(lat, 99.9), percentile(lat, 100));
+
+    if (tape != nullptr) {
+        // how much of each real print our synthetic book could absorb, and at what price
+        double want = 0, got = 0;
+        std::vector<double> filled(tape->size(), 0.0), cost(tape->size(), 0.0);
+        std::span<const std::byte> out = session.output();
+        while (!out.empty()) {
+            const auto r = proto::decode(out);
+            out = out.subspan(r.consumed);
+            const Event e = r.msg.to_event();
+            if (e.type != EventType::Trade || e.id < replay::kTakerIdBase) continue;
+            const std::size_t k = e.id - replay::kTakerIdBase;
+            filled[k] += static_cast<double>(e.qty);
+            cost[k] += static_cast<double>(e.qty) * static_cast<double>(e.price);
+        }
+        double slip_bps_sum = 0, slip_w = 0;
+        for (std::size_t k = 0; k < tape->size(); ++k) {
+            const auto& t = (*tape)[k];
+            want += static_cast<double>(t.qty);
+            got += filled[k];
+            if (filled[k] <= 0) continue;
+            const double vwap = cost[k] / filled[k];
+            const double sign = t.taker == Side::Buy ? 1.0 : -1.0;
+            // positive = the taker did worse than the real print
+            slip_bps_sum += sign * (vwap / static_cast<double>(t.price) - 1.0) * 1e4 * filled[k];
+            slip_w += filled[k];
+        }
+        std::printf("tape: %zu prints, %.1f%% of their volume filled against the synthetic makers, "
+                    "volume-weighted slippage vs the real prints %+.2f bps\n",
+                    tape->size(), 100.0 * got / want, slip_w > 0 ? slip_bps_sum / slip_w : 0.0);
+        // why so little fills: print sizes are heavy-tailed, the median says nothing about volume
+        std::vector<double> sizes;
+        for (const auto& t : *tape) sizes.push_back(static_cast<double>(t.qty));
+        std::sort(sizes.begin(), sizes.end(), std::greater<>());
+        const std::size_t top = std::max<std::size_t>(1, sizes.size() / 100);
+        double top_vol = 0;
+        for (std::size_t k = 0; k < top; ++k) top_vol += sizes[k];
+        std::printf("      the largest 1%% of prints carry %.1f%% of the volume; the median print is "
+                    "%.0f lots, the largest %.0f\n",
+                    100.0 * top_vol / want, sizes[sizes.size() / 2], sizes.front());
+    }
+    return 0;
+}
+
+int replay_cmd(int argc, char** argv) {
+    using namespace matchbook;
+    std::string trades, symbol = "BTC-USD";
+    std::size_t events = 1'000'000;
+    std::uint64_t seed = 7;
+    double tick = 0.01, lot = 1e-8;
+    for (int i = 2; i + 1 < argc; i += 2) {
+        const std::string k = argv[i];
+        if (k == "--trades") trades = argv[i + 1];
+        else if (k == "--symbol") symbol = argv[i + 1];
+        else if (k == "--synthetic") events = std::strtoull(argv[i + 1], nullptr, 10);
+        else if (k == "--seed") seed = std::strtoull(argv[i + 1], nullptr, 10);
+        else if (k == "--tick") tick = std::atof(argv[i + 1]);
+        else if (k == "--lot") lot = std::atof(argv[i + 1]);
+    }
+    if (trades.empty()) {
+        replay::FlowStats s;
+        const auto stream = replay::synthetic_flow({}, events, seed, &s);
+        std::printf("synthetic flow: %zu limits, %zu markets, %zu cancels\n", s.limits, s.markets,
+                    s.cancels);
+        return replay_stream(stream, "synthetic", nullptr);
+    }
+    std::size_t bad = 0;
+    const auto tape = replay::load_trades_csv(trades, symbol, tick, lot, &bad);
+    if (tape.empty()) {
+        std::fprintf(stderr, "no %s trades in %s\n", symbol.c_str(), trades.c_str());
+        return 1;
+    }
+    replay::FlowStats s;
+    const auto stream = replay::tape_flow(tape, {}, &s);
+    std::printf("%s: %zu prints (%zu bad rows skipped) -> %zu messages\n", symbol.c_str(),
+                tape.size(), bad, s.messages);
+    return replay_stream(stream, symbol.c_str(), &tape);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
+    if (argc > 1 && std::strcmp(argv[1], "replay") == 0) return replay_cmd(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "bench-queue") == 0) {
         const std::size_t n = argc > 2 ? std::strtoull(argv[2], nullptr, 10) : 2'000'000;
         return bench_queue(n);
@@ -180,6 +290,6 @@ int main(int argc, char** argv) {
         const std::size_t n = argc > 2 ? std::strtoull(argv[2], nullptr, 10) : 2'000'000;
         return bench_protocol(n);
     }
-    std::printf("usage: matchbook --info\n       matchbook bench-protocol [messages]\n       matchbook bench-queue [messages]\n");
+    std::printf("usage: matchbook --info\n       matchbook bench-protocol [messages]\n       matchbook bench-queue [messages]\n       matchbook replay [--synthetic N | --trades file.csv --symbol BTC-USD]\n");
     return argc > 1 ? 1 : 0;
 }
