@@ -157,6 +157,31 @@ What the numbers say:
   median flat up to 5M msg/s but can't stop preemption. Microsecond tails need isolated cores
   (Linux `isolcpus` + real-time priority), which a laptop doesn't give you.
 
+## Replay
+
+`matchbook replay` pushes a stream of wire messages through a `Session` one message at a time and times each one with the TSC (decode + match + encode the events).
+
+**Synthetic flow** (`replay::synthetic_flow`): a merged Poisson process of limit orders (60%), marketable orders (10%) and cancels (30%). Limit prices sit 1 + Geometric ticks from a slowly drifting mid, sizes are geometric; cancels pick a random earlier order, which may already be filled (the engine then rejects it, as a real one would). Same seed, same bytes.
+
+**Real Coinbase prints** (`replay::tape_flow`): `tools/export_trades.py` dumps the trades QuantLab's Go gateway recorded into Redis (3,827 BTC-USD / ETH-USD prints from a 10-minute live run). Each print becomes an IOC order of its real size and side; before it, synthetic market makers pull their ladder and re-quote 5 levels per side, one tick apart, at the median print size, around the previous print.
+
+```text
+$ matchbook replay --synthetic 2000000
+synthetic flow: 1199702 limits, 200061 markets, 600236 cancels
+synthetic: 1999999 messages in 0.179 s (11.2 M msg/s incl. timing), 1269117 trades, 25383 resting at the end
+per message (decode + match + encode): p50 50 ns, p99 370 ns, p99.9 1532 ns
+
+$ matchbook replay --trades data/coinbase_trades_sample.csv --symbol BTC-USD
+BTC-USD: 2744 prints (0 bad rows skipped) -> 57614 messages
+per message (decode + match + encode): p50 30 ns, p99 190 ns, p99.9 1322 ns
+tape: 2744 prints, 5.6% of their volume filled against the synthetic makers, volume-weighted slippage vs the real prints -0.03 bps
+      the largest 1% of prints carry 25.3% of the volume; the median print is 31833 lots, the largest 58080543
+```
+
+- **A message costs ~30-50 ns at the median and under 0.4 µs at p99.** The p99.9 (~1.5 µs) is mostly the sweeps: a marketable order that walks several levels emits one trade event per resting order it hits.
+- **Median-sized quotes absorb almost none of the real volume** (5.6% on BTC, 13.3% on ETH): print sizes are heavy-tailed, the largest BTC print is ~1,800x the median and the top 1% of prints carry a quarter of the volume. A realistic liquidity model has to size quotes by volume, not by count; for the latency numbers it doesn't matter.
+- Tests: the synthetic event mix matches its rates within 1%, limit prices stay on their side of the mid, the book is never crossed after any message of either flow, the CSV loader skips malformed rows, and every taker fill in the tape replay is against a maker.
+
 ## Build
 
 Requirements: CMake 3.24+, Ninja, and GCC 12+ or Clang 16+.
