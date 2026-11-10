@@ -11,6 +11,12 @@ option(MATCHBOOK_BUILD_TESTS "Build unit tests" ON)
 option(MATCHBOOK_NATIVE "Compile with -march=native" OFF)
 option(MATCHBOOK_SANITIZE "Build with AddressSanitizer + UBSan" OFF)
 option(MATCHBOOK_BUILD_BENCH "Build the Google Benchmark suite" ON)
+option(MATCHBOOK_BUILD_PYTHON "Build the pybind11 module (pip install . sets this)" OFF)
+
+if(MATCHBOOK_BUILD_PYTHON)
+  # the static library gets linked into a shared Python module
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
@@ -67,4 +73,11 @@ endif()
 
 if(MATCHBOOK_BUILD_BENCH)
   add_subdirectory(bench)
+endif()
+
+if(MATCHBOOK_BUILD_PYTHON)
+  find_package(pybind11 CONFIG REQUIRED)
+  pybind11_add_module(_matchbook python/matchbook_py.cpp)
+  target_link_libraries(_matchbook PRIVATE matchbook)
+  install(TARGETS _matchbook DESTINATION matchbook)
 endif()
