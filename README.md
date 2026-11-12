@@ -225,6 +225,42 @@ Two humps: cancels and passive orders at 8-64 ns, and messages that trade (and e
 events) at 128-256 ns. Everything past ~4 µs is a few dozen messages out of 2 million that were
 interrupted by the OS.
 
+## Python
+
+`pip install .` builds the engine as a pybind11 module (scikit-build-core drives CMake with `MATCHBOOK_BUILD_PYTHON=ON`):
+
+```python
+from matchbook import Engine, Side, TimeInForce, market_order_cost
+
+e = Engine()
+e.submit(1, Side.SELL, price=101, qty=5)        # [Event(Rested, id=1, price=101, qty=5)]
+e.submit(2, Side.BUY, price=101, qty=3)         # [Event(Trade, id=2, maker_id=1, price=101, qty=3)]
+e.depth(Side.SELL)                              # [(101, 2, 1)]  price, qty, orders
+
+# numpy in, numpy out: one call for a whole batch (GIL released while matching)
+trades = Engine().submit_many(ids, sides, prices, qtys, types, tifs)
+
+# what a backtester needs: the cost of walking a book snapshot
+market_order_cost(bids, asks, Side.BUY, qty=500)  # FillCost(filled, avg_price, slippage_bps, levels)
+```
+
+```text
+$ python python/examples/bench_bindings.py          # Linux container, Python 3.12
+200,000 orders, 161,915 trades
+  one call per order:     984 ns/order
+  submit_many:             68 ns/order  (14x)
+```
+
+The engine itself takes ~50 ns per order; one Python call per order costs ~1 µs, almost all of it
+crossing the Python / C++ boundary and building `Event` objects. The batch API keeps a backtest
+at engine speed. `market_order_cost` replaces a flat slippage assumption with the actual cost of
+walking a book: on 10 levels of 100 lots one tick apart, a 1,000-lot market buy pays 4.5 bps.
+
+Tests (`pytest`, 6 cases): matching and events through the bindings, FOK / IOC / cancel / modify /
+rejects, `submit_many` producing exactly the trades of one call per order on 5,000 random orders,
+input validation (mismatched lengths, out-of-range enum bytes are rejected rather than cast), the
+batch speed-up, and `market_order_cost` against hand-computed fills.
+
 ## Build
 
 Requirements: CMake 3.24+, Ninja, and GCC 12+ or Clang 16+.

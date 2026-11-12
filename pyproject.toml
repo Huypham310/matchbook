@@ -1,0 +1,28 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "pybind11>=2.13"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "matchbook"
+version = "0.1.0"
+description = "Python bindings for the MatchBook C++20 matching engine"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.26"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.scikit-build]
+cmake.version = ">=3.24"
+wheel.packages = ["python/matchbook"]
+build-dir = "build/py-{wheel_tag}"
+
+[tool.scikit-build.cmake.define]
+MATCHBOOK_BUILD_PYTHON = "ON"
+MATCHBOOK_BUILD_TESTS = "OFF"
+MATCHBOOK_BUILD_BENCH = "OFF"
+
+[tool.pytest.ini_options]
+testpaths = ["python/tests"]
