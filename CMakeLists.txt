@@ -12,6 +12,18 @@ option(MATCHBOOK_NATIVE "Compile with -march=native" OFF)
 option(MATCHBOOK_SANITIZE "Build with AddressSanitizer + UBSan" OFF)
 option(MATCHBOOK_BUILD_BENCH "Build the Google Benchmark suite" ON)
 option(MATCHBOOK_BUILD_PYTHON "Build the pybind11 module (pip install . sets this)" OFF)
+option(MATCHBOOK_COVERAGE "Instrument for gcov line coverage (GCC)" OFF)
+option(MATCHBOOK_FUZZ "Build the libFuzzer targets (Clang)" OFF)
+
+if(MATCHBOOK_COVERAGE)
+  add_compile_options(--coverage -O0)
+  add_link_options(--coverage)
+endif()
+if(MATCHBOOK_FUZZ)
+  # the library itself gets ASan/UBSan + fuzzer coverage counters too
+  add_compile_options(-fsanitize=fuzzer-no-link,address,undefined -fno-omit-frame-pointer)
+  add_link_options(-fsanitize=address,undefined)
+endif()
 
 if(MATCHBOOK_BUILD_PYTHON)
   # the static library gets linked into a shared Python module
@@ -73,6 +85,10 @@ endif()
 
 if(MATCHBOOK_BUILD_BENCH)
   add_subdirectory(bench)
+endif()
+
+if(MATCHBOOK_FUZZ)
+  add_subdirectory(fuzz)
 endif()
 
 if(MATCHBOOK_BUILD_PYTHON)
