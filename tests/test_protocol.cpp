@@ -114,6 +114,15 @@ TEST(Protocol, RejectsMalformedHeadersWithoutReadingPastTheBuffer) {
     EXPECT_EQ(decode(bad).status, DecodeStatus::BadField);
 }
 
+TEST(Protocol, EveryDecodeStatusHasAName) {
+    // used in log lines when a session drops a client, "?" would be useless there
+    for (auto s : {DecodeStatus::Ok, DecodeStatus::NeedMore, DecodeStatus::UnknownType,
+                   DecodeStatus::BadLength, DecodeStatus::BadVersion, DecodeStatus::BadField}) {
+        EXPECT_STRNE(to_string(s), "?");
+    }
+    EXPECT_STREQ(to_string(DecodeStatus::BadLength), "bad length");
+}
+
 TEST(Protocol, RandomBytesNeverDecodeOutOfBounds) {
     std::mt19937 rng(7);
     std::uniform_int_distribution<int> byte(0, 255);

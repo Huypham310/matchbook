@@ -274,6 +274,34 @@ ctest --preset release
 
 The `asan` preset builds with AddressSanitizer and UBSan (Linux / macOS; MinGW has no ASan runtime).
 
+## Tests
+
+64 GoogleTest cases (book, matching, protocol, session, SPSC queue, replay) including randomized
+differential tests against a naive reference book, plus the 6 pytest cases above.
+
+`scripts/check_linux.sh` runs the heavier checks in one go (I run it in a plain Ubuntu container
+from Windows):
+
+```bash
+docker run --rm -v "$PWD:/src" -w /src ubuntu:24.04 bash scripts/check_linux.sh 60
+```
+
+1. the full suite under ASan + UBSan (GCC, Debug)
+2. line coverage with gcov / gcovr (`-DMATCHBOOK_COVERAGE=ON`)
+3. 60 s of libFuzzer on `fuzz/fuzz_session.cpp` (Clang, `-DMATCHBOOK_FUZZ=ON`): random bytes,
+   cut into random-sized chunks, go through `Session` into a real engine, and after every chunk the
+   book invariants are checked and the book must not be crossed
+
+| check | result |
+|---|---|
+| ASan + UBSan | full suite passes, no reports |
+| line coverage (`src/` + `include/`) | 95% (738 / 770 lines) |
+| libFuzzer, 60 s | 1.03M inputs (~16.8k/s), 372 new coverage units, no crashes |
+
+Uncovered lines are mostly the `check_invariants()` failure paths (they throw only if the book is
+already corrupt), the "level table full" reject, the busy-wait branch when a queue is empty, and
+outbound message types sent back into `Session`, which are skipped.
+
 ## License
 
 MIT
