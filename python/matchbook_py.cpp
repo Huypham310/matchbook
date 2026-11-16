@@ -22,8 +22,8 @@ namespace {
 
 std::string event_repr(const Event& e) {
     static const char* names[] = {"Trade", "Rested", "Cancelled", "Rejected"};
-    std::string s = std::string("Event(") + names[static_cast<int>(e.type)] + ", id=" +
-                    std::to_string(e.id);
+    std::string s =
+        std::string("Event(") + names[static_cast<int>(e.type)] + ", id=" + std::to_string(e.id);
     if (e.type == EventType::Trade) s += ", maker_id=" + std::to_string(e.maker_id);
     if (e.type != EventType::Rejected) {
         s += ", price=" + std::to_string(e.price) + ", qty=" + std::to_string(e.qty);
@@ -147,8 +147,8 @@ PYBIND11_MODULE(_matchbook, m) {
                 out["rejected"] = rejected;
                 return out;
             },
-            py::arg("ids"), py::arg("sides"), py::arg("prices"), py::arg("qtys"),
-            py::arg("types"), py::arg("tifs"),
+            py::arg("ids"), py::arg("sides"), py::arg("prices"), py::arg("qtys"), py::arg("types"),
+            py::arg("tifs"),
             "Submit a batch (numpy arrays, enums as small ints) and get every trade back as "
             "arrays: taker_id, maker_id, price, qty, plus a count of rejected orders.")
         .def_property_readonly("best_bid",
@@ -159,7 +159,8 @@ PYBIND11_MODULE(_matchbook, m) {
             "depth",
             [](const MatchingEngine& e, Side side, std::size_t n) {
                 std::vector<std::tuple<Price, Qty, std::uint32_t>> out;
-                for (const auto& l : e.book().depth(side, n)) out.emplace_back(l.price, l.qty, l.orders);
+                for (const auto& l : e.book().depth(side, n))
+                    out.emplace_back(l.price, l.qty, l.orders);
                 return out;
             },
             py::arg("side"), py::arg("levels") = 5,

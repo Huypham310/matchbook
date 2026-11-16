@@ -16,7 +16,7 @@ namespace {
 
 // Obviously-correct and slow: a flat map of orders, everything recomputed on demand.
 class ReferenceBook {
-public:
+  public:
     bool add(OrderId id, Side side, Price price, Qty qty) {
         if (qty <= 0 || orders_.contains(id)) return false;
         orders_[id] = {side, price, qty, seq_++};
@@ -62,7 +62,7 @@ public:
     }
     std::size_t size() const { return orders_.size(); }
 
-private:
+  private:
     struct Ref {
         Side side;
         Price price;

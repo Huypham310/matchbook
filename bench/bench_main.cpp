@@ -94,9 +94,9 @@ static void BM_MarketSweep(benchmark::State& state) {
     }
     state.SetItemsProcessed(state.iterations() * kBatch);
     state.counters["levels"] = levels;
-    state.counters["ns_per_sweep"] = benchmark::Counter(
-        static_cast<double>(state.iterations() * kBatch),
-        benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
+    state.counters["ns_per_sweep"] =
+        benchmark::Counter(static_cast<double>(state.iterations() * kBatch),
+                           benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
 }
 BENCHMARK(BM_MarketSweep)->Arg(1)->Arg(4)->Arg(16)->Arg(64);
 
@@ -154,7 +154,13 @@ static void BM_SpscRing(benchmark::State& state) {
     }
     state.SetItemsProcessed(state.iterations() * static_cast<std::int64_t>(kItems));
 }
-BENCHMARK(BM_SpscRing<true>)->Name("BM_SpscRing/padded")->UseRealTime()->Unit(benchmark::kMillisecond);
-BENCHMARK(BM_SpscRing<false>)->Name("BM_SpscRing/plain")->UseRealTime()->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_SpscRing<true>)
+    ->Name("BM_SpscRing/padded")
+    ->UseRealTime()
+    ->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_SpscRing<false>)
+    ->Name("BM_SpscRing/plain")
+    ->UseRealTime()
+    ->Unit(benchmark::kMillisecond);
 
 BENCHMARK_MAIN();

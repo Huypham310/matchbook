@@ -13,9 +13,7 @@ void write_header(std::byte* p, MsgType type, std::uint32_t seq) noexcept {
     store_le<std::uint32_t>(p + 4, seq);
 }
 
-bool is_known(std::uint8_t t) noexcept {
-    return message_size(static_cast<MsgType>(t)) != 0;
-}
+bool is_known(std::uint8_t t) noexcept { return message_size(static_cast<MsgType>(t)) != 0; }
 
 }  // namespace
 
@@ -67,8 +65,8 @@ DecodeResult decode(std::span<const std::byte> buf) noexcept {
 Event MessageView::to_event() const noexcept {
     switch (type()) {
         case MsgType::Trade:
-            return {EventType::Trade, taker_id(), id(), trade_price(), trade_qty(),
-                    RejectReason::BadQuantity};
+            return {EventType::Trade, taker_id(),  id(),
+                    trade_price(),    trade_qty(), RejectReason::BadQuantity};
         case MsgType::Rested:
             return {EventType::Rested, id(), 0, price(), qty(), RejectReason::BadQuantity};
         case MsgType::Cancelled:

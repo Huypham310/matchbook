@@ -10,7 +10,7 @@ namespace matchbook {
 /// inside the allocator, both far slower than the work we actually want to do.
 template <class T>
 class Pool {
-public:
+  public:
     explicit Pool(std::size_t capacity) : slots_(capacity) {
         free_.reserve(capacity);
         // hand out low addresses first, slightly friendlier to the cache when the pool is big
@@ -38,7 +38,7 @@ public:
     [[nodiscard]] std::size_t available() const noexcept { return free_.size(); }
     [[nodiscard]] std::size_t in_use() const noexcept { return slots_.size() - free_.size(); }
 
-private:
+  private:
     std::vector<T> slots_;  // never resized after construction, so pointers stay valid
     std::vector<T*> free_;
 };
