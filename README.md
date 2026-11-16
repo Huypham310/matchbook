@@ -302,6 +302,29 @@ Uncovered lines are mostly the `check_invariants()` failure paths (they throw on
 already corrupt), the "level table full" reject, the busy-wait branch when a queue is empty, and
 outbound message types sent back into `Session`, which are skipped.
 
+## CI / Docker
+
+GitHub Actions runs on every push and PR:
+
+| job | what |
+|---|---|
+| `format` | `clang-format --dry-run --Werror` on every `.hpp` / `.cpp` |
+| `build-test` | release build + `ctest` (GoogleTest) |
+| `asan` | Debug build with AddressSanitizer + UBSan |
+| `python` | `pip install -e ".[test]"` then pytest |
+| `docker` | `docker build` (which also runs the unit tests) |
+
+```bash
+docker build -t matchbook .
+docker run --rm matchbook                                  # --info
+docker run --rm matchbook ./build/release/tests/matchbook_tests --gtest_brief=1
+```
+
+The heavier local check (`scripts/check_linux.sh`: ASan, gcov coverage, a timed libFuzzer run)
+is not part of CI; it takes several minutes of apt + three full rebuilds and is meant for a
+dev machine or a long Actions job later.
+
 ## License
 
 MIT
+
