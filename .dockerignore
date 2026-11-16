@@ -1,0 +1,13 @@
+.git
+build
+.cache
+*.user
+*.swp
+.DS_Store
+Thumbs.db
+__pycache__
+.pytest_cache
+*.egg-info
+.venv
+bench/results
+*.jsonl
