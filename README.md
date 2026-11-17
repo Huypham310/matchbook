@@ -1,34 +1,167 @@
 # MatchBook
 
+[![CI](https://github.com/Huypham310/matchbook/actions/workflows/ci.yml/badge.svg)](https://github.com/Huypham310/matchbook/actions/workflows/ci.yml)
+
 A low-latency limit order book and matching engine in C++20.
 
-MatchBook is a single-threaded matching engine with price-time priority, built to see where the
-nanoseconds go: how the book is laid out in memory, what allocations sit on the hot path, and how
-orders move between threads without locks. Every design choice is measured with latency histograms
+MatchBook is a matching engine with price-time priority, built to see where the nanoseconds go:
+how the book is laid out in memory, what allocations sit on the hot path, and how orders move
+between threads without locks. Every design choice is measured with latency histograms
 (p50 / p99 / p99.9) instead of averages.
 
-> Status: early work in progress.
+**Contents:**
+[Features](#features) ·
+[Architecture](#architecture) ·
+[Design decisions](#design-decisions) ·
+[Setup](#setup) ·
+[Order book](#order-book) ·
+[Matching](#matching) ·
+[Wire protocol](#wire-protocol) ·
+[Threaded pipeline](#threaded-pipeline) ·
+[Replay](#replay) ·
+[Benchmarks](#benchmarks) ·
+[Python](#python) ·
+[Tests and checks](#tests-and-checks) ·
+[CI / Docker](#ci--docker) ·
+[Repository layout](#repository-layout)
 
-## Planned features
+## Features
 
 - Order book with O(1) cancel and modify: intrusive FIFO lists per price level, a pre-allocated
   order pool, and no heap allocation on the matching path
 - Matching with price-time priority for limit, market, IOC and FOK orders, partial fills, cancel
   and modify (losing queue priority on size increase or price change)
-- Compact binary order protocol with zero-copy parsing
+- Compact binary order protocol with zero-copy parsing and a streaming `Session`
 - Lock-free single-producer / single-consumer ring buffer between the gateway, engine and
-  market-data threads, with cache-line padding to avoid false sharing
-- Differential tests against a naive reference book, fuzzing, AddressSanitizer / UBSan
+  publisher threads, with cache-line padding to avoid false sharing
+- Differential tests against a naive reference book and matcher, libFuzzer, AddressSanitizer /
+  UBSan, 95% line coverage
 - Replay of synthetic Poisson order flow and real Coinbase trades recorded by
   [QuantLab](https://github.com/Huypham310/quantlab)
 - Google Benchmark suites and per-message latency histograms
-- Python bindings (pybind11) so QuantLab's backtester can match against a real book
+- Python bindings (pybind11 + numpy) so QuantLab's backtester can match against a real book
+- GitHub Actions CI (format, build + tests, sanitizers, Python, Docker)
 
-## Design notes
+## Architecture
 
-Prices are integers counted in ticks (`int64_t`), never floating point: `0.1 + 0.2 != 0.3` is not
-something a matching engine can afford. Text prices from exchanges are converted to ticks once, at
-the edge.
+```mermaid
+flowchart LR
+    subgraph core["Core library (libmatchbook)"]
+        direction TB
+        book["OrderBook<br/>pools + sorted ladders<br/>intrusive FIFO levels"]
+        engine["MatchingEngine<br/>price-time priority<br/>GTC / IOC / FOK / market"]
+        proto["proto::decode / encode<br/>fixed-size binary messages"]
+        session["proto::Session<br/>bytes in, bytes out"]
+        book --> engine
+        engine --> session
+        proto --> session
+    end
+
+    subgraph pipe["Pipeline (3 threads)"]
+        direction LR
+        gw["gateway<br/>decode"] -- "SPSC ring: commands" --> eng["engine thread<br/>match"]
+        eng -- "SPSC ring: events" --> pub["publisher<br/>encode"]
+    end
+
+    replay["matchbook replay<br/>synthetic + Coinbase tape"] --> session
+    cli["matchbook bench-*<br/>(TSC timing)"] --> session
+    cli --> pipe
+    gbench["Google Benchmark<br/>bench/"] --> engine
+    gbench --> session
+    py["Python (pybind11)<br/>submit / submit_many<br/>market_order_cost"] --> engine
+    pipe -. "same bytes as" .-> session
+```
+
+Data flows left to right: bytes are decoded into commands, the engine turns commands into events
+against the book, and events are encoded back into bytes. The same `MatchingEngine` is driven
+three ways (a single-threaded `Session`, the 3-thread `Pipeline`, and Python), and tests check
+that all of them produce identical output. More detail on memory layout, the wire format and
+threading is in [docs/architecture.md](docs/architecture.md).
+
+## Design decisions
+
+- **Integer ticks, never floats.** Prices are `int64_t` tick counts; `0.1 + 0.2 != 0.3` is not
+  something a matching engine can afford. Text prices from exchanges are converted to ticks once,
+  at the edge (`parse_price`), and a price with more decimals than the tick allows is rejected
+  rather than rounded.
+- **Pools instead of `new`.** Orders and levels live in fixed-size pools allocated up front and
+  the id index / ladders reserve capacity in the constructor. A `new` on the hot path can be a
+  page fault or an allocator lock; running out of slots is reported as `BookFull` instead.
+- **Intrusive FIFO per level.** The `prev` / `next` links live inside the order, so time priority
+  is just list order and cancelling from the middle of a queue is O(1) with no search.
+- **Sorted vector ladders, best price at the back.** Almost all activity is at the top of the
+  book, so a new best level is a `push_back` and an emptied one a `pop_back`; deeper levels use
+  binary search. It is also far friendlier to the cache than a node-based map.
+- **SPSC rings, no locks.** Each stage of the pipeline owns its data and the two rings are the
+  only shared state. Counters sit on separate cache lines and each side caches the other's
+  counter to avoid bouncing lines (worth 1.2x on the raw ring).
+- **Paced latency, not unpaced.** Flooding the pipeline only measures queue depth, so latency is
+  measured at an offered load the system can sustain, timed with the TSC (Windows
+  `steady_clock` only has 100 ns resolution).
+- **Prove it against something dumb.** Book and engine are checked against deliberately naive
+  reference implementations on hundreds of thousands of random operations, and the checks were
+  validated by mutations (a wrong comparison must be caught within a few steps).
+
+## Setup
+
+### C++ (CMake)
+
+Requirements: CMake 3.24+, Ninja, and GCC 12+ or Clang 16+. GoogleTest and Google Benchmark are
+fetched by CMake on the first configure, so the first build needs internet access.
+
+```bash
+cmake --preset release
+cmake --build --preset release
+ctest --preset release
+./build/release/matchbook --info
+```
+
+Other presets: `debug`, `native` (`-march=native`) and `asan` (AddressSanitizer + UBSan on
+Linux / macOS; MinGW has no ASan runtime).
+
+Command line tool (`build/release/matchbook`):
+
+```bash
+matchbook --info                                   # version, compiler, type sizes
+matchbook bench-protocol 2000000                   # decode / decode + match + encode throughput
+matchbook bench-queue                              # SPSC ring + 3-thread pipeline, paced latency
+matchbook replay --synthetic 2000000               # Poisson flow, latency histogram
+matchbook replay --trades data/coinbase_trades_sample.csv --symbol BTC-USD
+./build/release/bench/matchbook_bench              # Google Benchmark suite
+```
+
+CMake options: `MATCHBOOK_BUILD_TESTS`, `MATCHBOOK_BUILD_BENCH`, `MATCHBOOK_NATIVE`,
+`MATCHBOOK_SANITIZE`, `MATCHBOOK_COVERAGE`, `MATCHBOOK_FUZZ`, `MATCHBOOK_BUILD_PYTHON`.
+
+### Docker
+
+```bash
+docker build -t matchbook .          # release build + unit tests run during the build
+docker run --rm matchbook            # --info
+docker run --rm matchbook ./build/release/tests/matchbook_tests --gtest_brief=1
+```
+
+### Python
+
+Requires Python 3.10+ and a C++ toolchain; `pip` builds the module through scikit-build-core.
+
+```bash
+pip install -e ".[test]"             # builds the pybind11 module (MATCHBOOK_BUILD_PYTHON=ON)
+pytest
+python python/examples/bench_bindings.py
+```
+
+### Linux checks (ASan, coverage, fuzzing)
+
+`scripts/check_linux.sh` runs the heavier checks that MinGW can't do. On Windows or macOS run it
+in a plain Ubuntu container:
+
+```bash
+docker run --rm -v "$PWD:/src" -w /src ubuntu:24.04 bash scripts/check_linux.sh 60
+```
+
+The argument is the number of seconds to fuzz (default 60). Results are in
+[Tests and checks](#tests-and-checks).
 
 ## Order book
 
@@ -101,8 +234,8 @@ decode only:               3.1 ns/msg  (318.5 M msg/s)
 decode + match + encode:  82.2 ns/msg  (12.2 M msg/s)
 ```
 
-A quick single-run number; proper Google Benchmark runs with latency percentiles come in the
-`bench` phase.
+A quick single-run number; the [Benchmarks](#benchmarks) section has the proper Google Benchmark
+runs, and [Replay](#replay) has per-message latency percentiles.
 
 ## Threaded pipeline
 
@@ -261,30 +394,13 @@ rejects, `submit_many` producing exactly the trades of one call per order on 5,0
 input validation (mismatched lengths, out-of-range enum bytes are rejected rather than cast), the
 batch speed-up, and `market_order_cost` against hand-computed fills.
 
-## Build
-
-Requirements: CMake 3.24+, Ninja, and GCC 12+ or Clang 16+.
-
-```bash
-cmake --preset release
-cmake --build --preset release
-ctest --preset release
-./build/release/matchbook --info
-```
-
-The `asan` preset builds with AddressSanitizer and UBSan (Linux / macOS; MinGW has no ASan runtime).
-
-## Tests
+## Tests and checks
 
 64 GoogleTest cases (book, matching, protocol, session, SPSC queue, replay) including randomized
 differential tests against a naive reference book, plus the 6 pytest cases above.
 
 `scripts/check_linux.sh` runs the heavier checks in one go (I run it in a plain Ubuntu container
-from Windows):
-
-```bash
-docker run --rm -v "$PWD:/src" -w /src ubuntu:24.04 bash scripts/check_linux.sh 60
-```
+from Windows, see [Setup](#linux-checks-asan-coverage-fuzzing)):
 
 1. the full suite under ASan + UBSan (GCC, Debug)
 2. line coverage with gcov / gcovr (`-DMATCHBOOK_COVERAGE=ON`)
@@ -294,6 +410,8 @@ docker run --rm -v "$PWD:/src" -w /src ubuntu:24.04 bash scripts/check_linux.sh 
 
 | check | result |
 |---|---|
+| GoogleTest | 64 cases pass |
+| pytest | 6 cases pass |
 | ASan + UBSan | full suite passes, no reports |
 | line coverage (`src/` + `include/`) | 95% (738 / 770 lines) |
 | libFuzzer, 60 s | 1.03M inputs (~16.8k/s), 372 new coverage units, no crashes |
@@ -304,7 +422,7 @@ outbound message types sent back into `Session`, which are skipped.
 
 ## CI / Docker
 
-GitHub Actions runs on every push and PR:
+GitHub Actions runs on every push to `main` and on every PR:
 
 | job | what |
 |---|---|
@@ -314,17 +432,28 @@ GitHub Actions runs on every push and PR:
 | `python` | `pip install -e ".[test]"` then pytest |
 | `docker` | `docker build` (which also runs the unit tests) |
 
-```bash
-docker build -t matchbook .
-docker run --rm matchbook                                  # --info
-docker run --rm matchbook ./build/release/tests/matchbook_tests --gtest_brief=1
-```
-
 The heavier local check (`scripts/check_linux.sh`: ASan, gcov coverage, a timed libFuzzer run)
 is not part of CI; it takes several minutes of apt + three full rebuilds and is meant for a
-dev machine or a long Actions job later.
+dev machine.
+
+## Repository layout
+
+```text
+include/matchbook/   public headers (book, engine, protocol, session, pipeline, spsc, replay, ...)
+src/                 library sources
+tools/               matchbook CLI, export_trades.py (Redis -> CSV)
+bench/               Google Benchmark suite
+tests/               GoogleTest cases + small CSV fixture
+fuzz/                libFuzzer target for Session
+python/              pybind11 module, Python package, tests, examples
+data/                sample Coinbase trades (CSV)
+scripts/             check_linux.sh (ASan, coverage, fuzz)
+docs/                architecture notes and diagrams
+```
+
+For component, memory, protocol and threading details see
+[docs/architecture.md](docs/architecture.md).
 
 ## License
 
 MIT
-
