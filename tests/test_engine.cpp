@@ -50,8 +50,8 @@ TEST(Engine, TakerFillsAtMakerPricesInTimePriority) {
 TEST(Engine, GtcRemainderRestsAtItsLimit) {
     auto e = seeded();
     e.submit(limit(10, Side::Buy, 102, 10));
-    EXPECT_EQ(e.events(), (std::vector<Event>{trade(10, 1, 101, 5), trade(10, 2, 101, 3),
-                                              rested(10, 102, 2)}));
+    EXPECT_EQ(e.events(),
+              (std::vector<Event>{trade(10, 1, 101, 5), trade(10, 2, 101, 3), rested(10, 102, 2)}));
     EXPECT_EQ(e.book().best_bid(), 102);
     EXPECT_EQ(e.book().best_ask(), 103);  // never crossed
 }

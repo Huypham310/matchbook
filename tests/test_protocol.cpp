@@ -32,13 +32,14 @@ TEST(Protocol, MessageSizesAreMultiplesOfEight) {
 TEST(Protocol, NewOrderWireLayoutIsPinned) {
     // golden bytes: changing the layout must be a deliberate, versioned decision
     std::array<std::byte, 40> buf{};
-    const NewOrder o{0x0102030405060708ULL, Side::Sell, OrderType::Limit, TimeInForce::IOC, 1000, 7};
+    const NewOrder o{0x0102030405060708ULL, Side::Sell, OrderType::Limit,
+                     TimeInForce::IOC,      1000,       7};
     ASSERT_EQ(encode_new_order(buf, o, 0xAABBCCDD), 40u);
-    const auto want = bytes_of({40, 0, 'N', 1, 0xDD, 0xCC, 0xBB, 0xAA,  // header
-                                8,  7, 6,   5, 4,    3,    2,    1,     // id
-                                0xE8, 3, 0, 0, 0, 0, 0, 0,              // price 1000
-                                7,  0, 0,   0, 0,    0,    0,    0,     // qty
-                                1,  0, 1,   0, 0,    0,    0,    0});   // sell, limit, ioc
+    const auto want = bytes_of({40,   0, 'N', 1, 0xDD, 0xCC, 0xBB, 0xAA,  // header
+                                8,    7, 6,   5, 4,    3,    2,    1,     // id
+                                0xE8, 3, 0,   0, 0,    0,    0,    0,     // price 1000
+                                7,    0, 0,   0, 0,    0,    0,    0,     // qty
+                                1,    0, 1,   0, 0,    0,    0,    0});   // sell, limit, ioc
     EXPECT_TRUE(std::equal(buf.begin(), buf.end(), want.begin()));
 }
 
@@ -159,11 +160,17 @@ std::vector<std::byte> order_stream(int n, std::uint32_t seed, std::vector<NewOr
         std::span<std::byte> dst(out.data() + at, out.size() - at);
         const auto id = static_cast<OrderId>(i + 1);
         if (kind(rng) == 0 && i > 0) {
-            at += encode_cancel(dst, static_cast<OrderId>(1 + rng() % i), static_cast<std::uint32_t>(i));
-            if (orders) orders->push_back({0, Side::Buy, OrderType::Limit, TimeInForce::GTC, -1, -1});
+            at += encode_cancel(dst, static_cast<OrderId>(1 + rng() % i),
+                                static_cast<std::uint32_t>(i));
+            if (orders)
+                orders->push_back({0, Side::Buy, OrderType::Limit, TimeInForce::GTC, -1, -1});
         } else {
-            NewOrder o{id, rng() % 2 ? Side::Buy : Side::Sell, OrderType::Limit,
-                       rng() % 5 == 0 ? TimeInForce::IOC : TimeInForce::GTC, price(rng), qty(rng)};
+            NewOrder o{id,
+                       rng() % 2 ? Side::Buy : Side::Sell,
+                       OrderType::Limit,
+                       rng() % 5 == 0 ? TimeInForce::IOC : TimeInForce::GTC,
+                       price(rng),
+                       qty(rng)};
             at += encode_new_order(dst, o, static_cast<std::uint32_t>(i));
             if (orders) orders->push_back(o);
         }
@@ -201,8 +208,10 @@ TEST(Session, WireStreamGivesTheSameEventsAsCallingTheEngine) {
     std::span<const std::byte> in(stream);
     while (!in.empty()) {
         const auto r = decode(in);
-        if (r.msg.type() == MsgType::NewOrder) direct.submit(r.msg.to_new_order());
-        else direct.cancel(r.msg.id());
+        if (r.msg.type() == MsgType::NewOrder)
+            direct.submit(r.msg.to_new_order());
+        else
+            direct.cancel(r.msg.id());
         expected.insert(expected.end(), direct.events().begin(), direct.events().end());
         in = in.subspan(r.consumed);
     }

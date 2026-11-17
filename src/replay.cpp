@@ -14,17 +14,19 @@ namespace matchbook::replay {
 namespace {
 
 class Encoder {
-public:
+  public:
     explicit Encoder(std::size_t reserve) { buf_.reserve(reserve * 40); }
 
-    void add(const NewOrder& o) { put(40, [&](std::span<std::byte> d) {
-        return proto::encode_new_order(d, o, seq_++); }); }  // fmt: skip
-    void cancel(OrderId id) { put(16, [&](std::span<std::byte> d) {
-        return proto::encode_cancel(d, id, seq_++); }); }  // fmt: skip
+    void add(const NewOrder& o) {
+        put(40, [&](std::span<std::byte> d) { return proto::encode_new_order(d, o, seq_++); });
+    }  // fmt: skip
+    void cancel(OrderId id) {
+        put(16, [&](std::span<std::byte> d) { return proto::encode_cancel(d, id, seq_++); });
+    }  // fmt: skip
 
     std::vector<std::byte> take() { return std::move(buf_); }
 
-private:
+  private:
     template <class F>
     void put(std::size_t n, F&& encode) {
         const std::size_t at = buf_.size();

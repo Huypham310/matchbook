@@ -49,7 +49,7 @@ struct Event {
 /// Every call appends its events to `events()` (cleared at the start of the call); the vector's
 /// capacity is reserved up front, so a normal call doesn't allocate.
 class MatchingEngine {
-public:
+  public:
     explicit MatchingEngine(std::size_t max_orders = 1u << 20, std::size_t max_levels = 1u << 16);
 
     void submit(const NewOrder& order);
@@ -60,7 +60,7 @@ public:
     [[nodiscard]] const OrderBook& book() const noexcept { return book_; }
     [[nodiscard]] std::uint64_t trade_count() const noexcept { return trades_; }
 
-private:
+  private:
     /// Fill `qty` of an incoming order against the opposite side, never past `limit`.
     /// Returns what's left unfilled.
     Qty sweep(OrderId taker, Side side, Price limit, Qty qty);

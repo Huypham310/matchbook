@@ -99,10 +99,12 @@ std::vector<std::byte> random_stream(int n, std::uint32_t seed) {
                                        static_cast<Price>(95 + rng() % 11),
                                        static_cast<Qty>(1 + rng() % 30), seq);
         } else {
-            const NewOrder o{static_cast<OrderId>(i + 1), rng() % 2 ? Side::Buy : Side::Sell,
+            const NewOrder o{static_cast<OrderId>(i + 1),
+                             rng() % 2 ? Side::Buy : Side::Sell,
                              rng() % 30 == 0 ? OrderType::Market : OrderType::Limit,
                              rng() % 6 == 0 ? TimeInForce::IOC : TimeInForce::GTC,
-                             static_cast<Price>(95 + rng() % 11), static_cast<Qty>(1 + rng() % 30)};
+                             static_cast<Price>(95 + rng() % 11),
+                             static_cast<Qty>(1 + rng() % 30)};
             at += proto::encode_new_order(dst, o, seq);
         }
     }

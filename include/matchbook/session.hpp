@@ -17,7 +17,7 @@ namespace matchbook::proto {
 /// two `feed` calls is buffered until it's complete. A malformed message stops the session:
 /// with fixed-size framing there's no safe way to find the next message boundary.
 class Session {
-public:
+  public:
     explicit Session(MatchingEngine& engine) : engine_(engine) {
         pending_.reserve(64);
         out_.reserve(1u << 16);
@@ -35,7 +35,7 @@ public:
     [[nodiscard]] std::uint32_t next_out_seq() const noexcept { return out_seq_; }
     [[nodiscard]] std::size_t buffered() const noexcept { return pending_.size(); }
 
-private:
+  private:
     void apply(const MessageView& m);
     std::size_t consume(std::span<const std::byte> buf, DecodeStatus& status);
 

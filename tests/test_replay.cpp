@@ -14,7 +14,9 @@ using namespace matchbook::replay;
 
 namespace {
 
-std::string fixture() { return (std::filesystem::path(MATCHBOOK_TEST_DATA_DIR) / "trades_small.csv").string(); }
+std::string fixture() {
+    return (std::filesystem::path(MATCHBOOK_TEST_DATA_DIR) / "trades_small.csv").string();
+}
 
 /// Runs a stream through a session, checking after every message that the book isn't crossed.
 std::size_t run_checked(const std::vector<std::byte>& stream, MatchingEngine& engine) {
@@ -57,9 +59,12 @@ TEST(Replay, SyntheticFlowKeepsLimitsOnTheirSideOfTheMid) {
     for (std::span<const std::byte> in(stream); !in.empty();) {
         const auto r = proto::decode(in);
         in = in.subspan(r.consumed);
-        if (r.msg.type() != proto::MsgType::NewOrder || r.msg.order_type() != OrderType::Limit) continue;
-        if (r.msg.side() == Side::Buy) EXPECT_LT(r.msg.price(), cfg.mid);
-        else EXPECT_GT(r.msg.price(), cfg.mid);
+        if (r.msg.type() != proto::MsgType::NewOrder || r.msg.order_type() != OrderType::Limit)
+            continue;
+        if (r.msg.side() == Side::Buy)
+            EXPECT_LT(r.msg.price(), cfg.mid);
+        else
+            EXPECT_GT(r.msg.price(), cfg.mid);
         qty_sum += static_cast<double>(r.msg.qty());
         ++limits;
     }
@@ -77,7 +82,7 @@ TEST(Replay, LoadsOneSymbolAndSkipsBadRows) {
     std::size_t bad = 0;
     const auto btc = load_trades_csv(fixture(), "BTC-USD", 0.01, 1e-8, &bad);
     EXPECT_EQ(btc.size(), 45u);
-    EXPECT_EQ(bad, 3u);  // unparsable price, unknown side, short row
+    EXPECT_EQ(bad, 3u);                // unparsable price, unknown side, short row
     EXPECT_EQ(btc[0].price, 7822658);  // 78226.58 in cents
     EXPECT_EQ(btc[0].qty, 4);          // 0.00000004 BTC in satoshi
     EXPECT_EQ(btc[0].taker, Side::Sell);

@@ -16,7 +16,7 @@ using namespace matchbook;
 namespace {
 
 class ReferenceMatcher {
-public:
+  public:
     std::vector<Event> submit(const NewOrder& o) {
         std::vector<Event> ev;
         if (o.qty <= 0) return {{EventType::Rejected, o.id, 0, 0, 0, RejectReason::BadQuantity}};
@@ -97,7 +97,7 @@ public:
         return out;
     }
 
-private:
+  private:
     struct Ref {
         Side side;
         Price price;

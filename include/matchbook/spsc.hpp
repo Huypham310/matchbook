@@ -31,7 +31,7 @@ class SpscRing {
     static_assert(std::is_nothrow_copy_assignable_v<T>, "T must be nothrow copy-assignable");
     static constexpr std::size_t kAlign = Padded ? kCacheLine : alignof(std::atomic<std::size_t>);
 
-public:
+  public:
     static constexpr std::size_t capacity() noexcept { return N; }
 
     /// Producer only. False if full.
@@ -72,7 +72,7 @@ public:
         return tail_.load(std::memory_order_acquire) - head_.load(std::memory_order_acquire);
     }
 
-private:
+  private:
     alignas(kAlign) std::atomic<std::size_t> head_{0};  // next slot to read (consumer)
     alignas(kAlign) std::size_t tail_cache_ = 0;        // consumer's copy of tail_
     alignas(kAlign) std::atomic<std::size_t> tail_{0};  // next slot to write (producer)

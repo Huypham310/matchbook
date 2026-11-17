@@ -28,7 +28,7 @@ struct LevelView {
 /// Orders and levels come from fixed pools; cancel and modify find the order through an id index
 /// and unlink it from its level in O(1).
 class OrderBook {
-public:
+  public:
     explicit OrderBook(std::size_t max_orders = 1u << 20, std::size_t max_levels = 1u << 16);
 
     AddResult add(OrderId id, Side side, Price price, Qty qty);
@@ -51,7 +51,7 @@ public:
     /// for tests and debugging.
     void check_invariants() const;
 
-private:
+  private:
     // the matching engine works directly on levels and orders to avoid lookups on the hot path
     friend class MatchingEngine;
 

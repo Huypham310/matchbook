@@ -63,8 +63,8 @@ std::string format_price(Price ticks, TickSize tick) {
     const std::int64_t scale = pow10(tick.decimals);
     std::string out = ticks < 0 ? "-" : "";
     // careful with INT64_MIN: work on the unsigned magnitude
-    const std::uint64_t mag = ticks < 0 ? 0 - static_cast<std::uint64_t>(ticks)
-                                        : static_cast<std::uint64_t>(ticks);
+    const std::uint64_t mag =
+        ticks < 0 ? 0 - static_cast<std::uint64_t>(ticks) : static_cast<std::uint64_t>(ticks);
     out += std::to_string(mag / static_cast<std::uint64_t>(scale));
     if (tick.decimals > 0) {
         std::string frac = std::to_string(mag % static_cast<std::uint64_t>(scale));

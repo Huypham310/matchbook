@@ -20,7 +20,7 @@ namespace matchbook {
 /// The encoded output is byte-for-byte what a single-threaded proto::Session produces for the
 /// same input (a test checks this).
 class Pipeline {
-public:
+  public:
     struct Result {
         std::uint64_t messages = 0;
         std::uint64_t events = 0;
@@ -46,7 +46,7 @@ public:
     /// physical cores: two stages on SMT siblings fight over the same execution units.
     void pin_threads(std::array<int, 3> cpus) noexcept { cpus_ = cpus; }
 
-private:
+  private:
     std::size_t max_orders_;
     std::size_t max_levels_;
     std::array<int, 3> cpus_{-1, -1, -1};

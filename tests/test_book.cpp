@@ -61,8 +61,7 @@ TEST(Book, BestPricesAndDepthAggregateLevels) {
 
     EXPECT_EQ(book.best_bid(), 101);
     EXPECT_EQ(book.best_ask(), 103);
-    EXPECT_EQ(book.depth(Side::Buy, 10),
-              (std::vector<LevelView>{{101, 3, 1}, {100, 7, 2}}));
+    EXPECT_EQ(book.depth(Side::Buy, 10), (std::vector<LevelView>{{101, 3, 1}, {100, 7, 2}}));
     EXPECT_EQ(book.depth(Side::Sell, 1), (std::vector<LevelView>{{103, 1, 1}}));
     EXPECT_EQ(book.volume_at(Side::Buy, 100), 7);
     EXPECT_EQ(book.volume_at(Side::Buy, 99), 0);

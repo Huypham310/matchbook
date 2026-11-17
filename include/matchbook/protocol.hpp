@@ -91,18 +91,18 @@ void store_le(std::byte* p, T v) noexcept {
 
 enum class DecodeStatus : std::uint8_t {
     Ok,
-    NeedMore,      // buffer ends in the middle of a message: wait for more bytes
+    NeedMore,  // buffer ends in the middle of a message: wait for more bytes
     UnknownType,
-    BadLength,     // length field doesn't match the type's fixed size
+    BadLength,  // length field doesn't match the type's fixed size
     BadVersion,
-    BadField,      // e.g. side byte that isn't 0 or 1
+    BadField,  // e.g. side byte that isn't 0 or 1
 };
 
 const char* to_string(DecodeStatus s) noexcept;
 
 /// Read-only view of one complete, validated message inside a buffer.
 class MessageView {
-public:
+  public:
     MessageView() = default;
     explicit MessageView(const std::byte* p) noexcept : p_(p) {}
 
@@ -125,9 +125,7 @@ public:
     [[nodiscard]] Price trade_price() const noexcept { return load_le<Price>(p_ + 24); }
     [[nodiscard]] Qty trade_qty() const noexcept { return load_le<Qty>(p_ + 32); }
     /// Rejected: reason at 16.
-    [[nodiscard]] RejectReason reason() const noexcept {
-        return static_cast<RejectReason>(p_[16]);
-    }
+    [[nodiscard]] RejectReason reason() const noexcept { return static_cast<RejectReason>(p_[16]); }
 
     [[nodiscard]] NewOrder to_new_order() const noexcept {
         return {id(), side(), order_type(), tif(), price(), qty()};
@@ -135,7 +133,7 @@ public:
     /// The engine event this message encodes (Trade / Rested / Cancelled / Rejected).
     [[nodiscard]] Event to_event() const noexcept;
 
-private:
+  private:
     const std::byte* p_ = nullptr;
 };
 

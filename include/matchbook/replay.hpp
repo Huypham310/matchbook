@@ -14,14 +14,14 @@ namespace matchbook::replay {
 /// cancels arrive at their own rates. Event types are drawn with probability proportional to
 /// their rate (a merged Poisson process), so the mix and the per-type counts match the rates.
 struct SyntheticConfig {
-    double limit_rate = 0.60;   // relative rates; only the ratios matter
+    double limit_rate = 0.60;  // relative rates; only the ratios matter
     double market_rate = 0.10;
     double cancel_rate = 0.30;
     Price mid = 1'000'000;       // in ticks
     double level_decay = 0.35;   // limit distance from mid: 1 + Geometric(level_decay) ticks
     double mean_limit_qty = 10;  // Geometric quantities
     double mean_market_qty = 25;
-    double drift_prob = 0.01;    // chance per event that the mid moves one tick
+    double drift_prob = 0.01;  // chance per event that the mid moves one tick
 };
 
 struct FlowStats {

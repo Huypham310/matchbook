@@ -65,7 +65,8 @@ void push_spin(Ring& ring, const T& v) {
 
 std::uint32_t percentile(std::vector<std::uint32_t> v, double p) {
     if (v.empty()) return 0;
-    const auto rank = static_cast<std::size_t>(std::ceil(p / 100.0 * static_cast<double>(v.size())));
+    const auto rank =
+        static_cast<std::size_t>(std::ceil(p / 100.0 * static_cast<double>(v.size())));
     const std::size_t k = std::clamp<std::size_t>(rank, 1, v.size()) - 1;
     std::nth_element(v.begin(), v.begin() + static_cast<std::ptrdiff_t>(k), v.end());
     return v[k];
@@ -136,46 +137,47 @@ Pipeline::Result Pipeline::run(std::span<const std::byte> stream, bool keep_outp
     // gateway gets its own thread too, so pinning it doesn't change the caller's affinity
     const auto start = std::chrono::steady_clock::now();
     std::thread gateway([&] {
-    pin_to(cpus_[0]);
-    const double ticks_per_msg = rate > 0 ? 1e9 / rate / tick_ns : 0.0;
-    const std::uint64_t t_first = ticks();
-    std::uint64_t sent = 0;
-    while (!stream.empty()) {
-        const auto r = proto::decode(stream);
-        if (r.status != proto::DecodeStatus::Ok) break;
-        if (ticks_per_msg > 0) {
-            // open-loop pacing: message i is due at t_first + i / rate, whatever happened before
-            const auto due = t_first + static_cast<std::uint64_t>(static_cast<double>(sent) *
-                                                                  ticks_per_msg);
-            while (ticks() < due) cpu_relax();
+        pin_to(cpus_[0]);
+        const double ticks_per_msg = rate > 0 ? 1e9 / rate / tick_ns : 0.0;
+        const std::uint64_t t_first = ticks();
+        std::uint64_t sent = 0;
+        while (!stream.empty()) {
+            const auto r = proto::decode(stream);
+            if (r.status != proto::DecodeStatus::Ok) break;
+            if (ticks_per_msg > 0) {
+                // open-loop pacing: message i is due at t_first + i / rate, whatever happened
+                // before
+                const auto due =
+                    t_first + static_cast<std::uint64_t>(static_cast<double>(sent) * ticks_per_msg);
+                while (ticks() < due) cpu_relax();
+            }
+            ++sent;
+            Command cmd;
+            cmd.t_in = ticks();
+            switch (r.msg.type()) {
+                case proto::MsgType::NewOrder:
+                    cmd.kind = CmdKind::New;
+                    cmd.order = r.msg.to_new_order();
+                    break;
+                case proto::MsgType::Cancel:
+                    cmd.kind = CmdKind::Cancel;
+                    cmd.order.id = r.msg.id();
+                    break;
+                case proto::MsgType::Modify:
+                    cmd.kind = CmdKind::Modify;
+                    cmd.order.id = r.msg.id();
+                    cmd.order.price = r.msg.price();
+                    cmd.order.qty = r.msg.qty();
+                    break;
+                default:
+                    stream = stream.subspan(r.consumed);
+                    continue;  // outbound types are ignored, same as Session
+            }
+            push_spin(*commands, cmd);
+            ++result.messages;
+            stream = stream.subspan(r.consumed);
         }
-        ++sent;
-        Command cmd;
-        cmd.t_in = ticks();
-        switch (r.msg.type()) {
-            case proto::MsgType::NewOrder:
-                cmd.kind = CmdKind::New;
-                cmd.order = r.msg.to_new_order();
-                break;
-            case proto::MsgType::Cancel:
-                cmd.kind = CmdKind::Cancel;
-                cmd.order.id = r.msg.id();
-                break;
-            case proto::MsgType::Modify:
-                cmd.kind = CmdKind::Modify;
-                cmd.order.id = r.msg.id();
-                cmd.order.price = r.msg.price();
-                cmd.order.qty = r.msg.qty();
-                break;
-            default:
-                stream = stream.subspan(r.consumed);
-                continue;  // outbound types are ignored, same as Session
-        }
-        push_spin(*commands, cmd);
-        ++result.messages;
-        stream = stream.subspan(r.consumed);
-    }
-    push_spin(*commands, Command{});  // default kind is Stop
+        push_spin(*commands, Command{});  // default kind is Stop
     });
     gateway.join();
     engine_thread.join();
