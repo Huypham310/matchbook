@@ -1,5 +1,6 @@
-// Small command-line entry point: build info and a quick protocol throughput check. Replay and
-// proper Google Benchmark suites come with the later phases.
+// Command-line entry point: build info, quick protocol / queue throughput checks (TSC timed) and
+// order flow replay with latency histograms. The Google Benchmark suite lives in bench/.
+// Cách dùng xem ở hàm main (cuối file) hoặc README.
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
